@@ -46,8 +46,19 @@
     - [**8.2 Security Best Practices**](#82-security-best-practices)
     - [**8.3 Monitoring and Logs**](#83-monitoring-and-logs)
   - [**9.0 Sample YML file**](#90-sample-yml-file)
+  - [**10. Suffix Changes Deployment for `/app` Path**](#10-suffix-changes-deployment-for-app-path)
+    - [**10.1 Modifying the Express Server**](#101-modifying-the-express-server)
+      - [**Express Server Configuration**:](#express-server-configuration)
+    - [**10.2 Adjusting the React App**](#102-adjusting-the-react-app)
+      - [**Set Homepage in `package.json`**:](#set-homepage-in-packagejson)
+      - [**Adjust React Router** (If applicable):](#adjust-react-router-if-applicable)
+    - [**10.3 Configuring Azure Web App for `/app` Path**](#103-configuring-azure-web-app-for-app-path)
+    - [**10.4 Configuring Application Gateway for `/app` Path**](#104-configuring-application-gateway-for-app-path)
+      - [**1. Reuse Existing Backend Pool**:](#1-reuse-existing-backend-pool)
+      - [**2. Create a Path-Based Routing Rule for `/app`**:](#2-create-a-path-based-routing-rule-for-app)
+      - [**Example Routing Rule**:](#example-routing-rule)
+    - [**10.5 Dockerfile Adjustments for `/app` Path**](#105-dockerfile-adjustments-for-app-path)
   - [**Conclusion**](#conclusion)
-
 
 ## **1. Project Overview**
 
@@ -101,6 +112,7 @@ The **Frontend IP Configuration** determines how the Application Gateway listens
 - **Private IP**: For internal applications accessed within a Virtual Network.
 
 #### **When to use Public vs Private IP?**
+
 - **Public IP**: If your application is public-facing and needs to be accessed from the internet.
 - **Private IP**: For internal applications within a company’s network (for example, intranet applications).
 
@@ -128,7 +140,7 @@ Listeners are responsible for listening to incoming traffic on specific ports (e
 
 #### **4.3.1 Backend Pool Explanation**
 
-A **Backend Pool** defines the servers (e.g., Web Apps, Virtual Machines) to which traffic is routed after being processed by the Application Gateway. 
+A **Backend Pool** defines the servers (e.g., Web Apps, Virtual Machines) to which traffic is routed after being processed by the Application Gateway.
 
 #### **4.3.2 How Backend Pools Work**
 
@@ -200,6 +212,7 @@ Request routing rules define how traffic is routed from the frontend listener to
 **Host-based routing** routes traffic based on the hostname (e.g., `api.example.com` routes to one backend pool, while `web.example.com` routes to a different backend pool).
 
 **When to Use Path-based or Host-based Routing?**
+
 - **Path-based Routing**: When you need to route different parts of your application (like a front end and an API) to different backends. For example, `/api/*` goes to the API server, and `/web/*` goes to the frontend.
 - **Host-based Routing**: When you host multiple subdomains or domains that need to go to different backend servers. For example, `blog.example.com` and `shop.example.com` route to different services.
 
@@ -210,13 +223,14 @@ Request routing rules define how traffic is routed from the frontend listener to
 Here’s a visual breakdown of how traffic flows through the system when a user accesses your application:
 
 ```plaintext
-User Request (HTTP/HTTPS) --> Application Gateway Listener --> 
-Routing Rule (Path or Host) --> Backend Pool (Web App) --> 
-HTTP Settings (Timeout, Affinity) --> Health Probes Check --> 
+User Request (HTTP/HTTPS) --> Application Gateway Listener -->
+Routing Rule (Path or Host) --> Backend Pool (Web App) -->
+HTTP Settings (Timeout, Affinity) --> Health Probes Check -->
 Response Sent Back via Application Gateway to User
 ```
 
 ### **Step-by-Step Traffic Flow**
+
 1. **User Request**: A user enters the website URL, and the browser sends an HTTP/HTTPS request.
 2. **Frontend IP**: The request is directed to the public IP address of the Azure Application Gateway.
 3. **Listener**: The listener captures the request based on the port (HTTP: 80, HTTPS: 443).
@@ -238,26 +252,27 @@ This section will cover how to deploy your application using Docker, push it to 
 - The `Dockerfile` uses a multi-stage build to separate the build and runtime phases.
 
 **Steps**:
+
 1. Navigate to your project root.
 2. Build the Docker image for the combined React + Express application:
-    ```bash
-    docker build -t <your-dockerhub-username>/my-fullstack-app .
-    ```
+   ```bash
+   docker build -t <your-dockerhub-username>/my-fullstack-app .
+   ```
 3. Verify that the Docker image is created:
-    ```bash
-    docker images
-    ```
+   ```bash
+   docker images
+   ```
 
 ### **6.2 Pushing to Docker Hub**
 
 1. **Log in** to Docker Hub:
-    ```bash
-    docker login
-    ```
+   ```bash
+   docker login
+   ```
 2. **Push the Docker image**:
-    ```bash
-    docker push <your-dockerhub-username>/my-fullstack-app
-    ```
+   ```bash
+   docker push <your-dockerhub-username>/my-fullstack-app
+   ```
 
 ### **6.3 Deploying to Azure Web App**
 
@@ -329,6 +344,7 @@ This section will cover how to deploy your application using Docker, push it to 
 ---
 
 ## **9.0 Sample YML file**
+
 ```yml
   $schema: "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
 contentVersion: "1.0.0.0"
@@ -455,6 +471,143 @@ outputs:
 
 ```
 
+## **10. Suffix Changes Deployment for `/app` Path**
+
+This section addresses how to configure your Azure Web App and Application Gateway to serve your application under the `/app` path, ensuring correct routing and behavior for users accessing `http://<your-app-gateway-ip>/app`.
+
+---
+
+### **10.1 Modifying the Express Server**
+
+To serve the React app under the `/app` path, update the Express server to serve static files under that path and configure a catch-all route for `/app`.
+
+#### **Express Server Configuration**:
+
+```javascript
+const express = require('express');
+const path = require('path');
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Serve static files from the React app under /app
+app.use('/app', express.static(path.join(__dirname, 'build')));
+
+// Handle any requests to /app/*
+app.get('/app/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+```
+
+---
+
+### **10.2 Adjusting the React App**
+
+You must configure React to be aware that it's being served under the `/app` path by updating the `homepage` in `package.json` and modifying React Router (if applicable).
+
+#### **Set Homepage in `package.json`**:
+
+Update your `package.json` file to specify the `/app` path as the `homepage`:
+
+```json
+{
+  "name": "my-react-app",
+  "version": "1.0.0",
+  "private": true,
+  "homepage": "/app",
+  // ...other settings
+}
+```
+
+#### **Adjust React Router** (If applicable):
+
+If your React app uses **React Router**, update the `Router` to set the `basename` to `/app`.
+
+```javascript
+import { BrowserRouter as Router } from 'react-router-dom';
+
+function App() {
+  return (
+    <Router basename="/app">
+      {/* Your routes here */}
+    </Router>
+  );
+}
+
+export default App;
+```
+
+---
+
+### **10.3 Configuring Azure Web App for `/app` Path**
+
+Azure Web App does not require special configurations to serve your React + Express app under `/app`, but ensure your deployment settings (like environment variables) are correct.
+
+1. **Deploy the Docker container** as usual.
+2. Ensure that **your app serves requests to `/app`** correctly by testing the route after deployment.
+
+### **10.4 Configuring Application Gateway for `/app` Path**
+
+To ensure the Application Gateway correctly routes traffic to `/app`, you’ll configure **path-based routing** rules.
+
+#### **1. Reuse Existing Backend Pool**:
+Since both the root path (`/`) and `/app` use the same backend (Azure Web App) and port, you can reuse the same backend pool.
+
+#### **2. Create a Path-Based Routing Rule for `/app`**:
+
+1. **Navigate to Application Gateway** > **Rules**.
+2. **Edit or Add a Path-Based Routing Rule**.
+   - **Path `/`** → Routes to the root application.
+   - **Path `/app/*`** → Routes to the same backend pool (since you're using the same App Service).
+
+#### **Example Routing Rule**:
+- **Path `/`** → Routes to **Backend Pool 1** (root service).
+- **Path `/app`** → Routes to the same backend pool.
+
+Ensure that traffic directed to `/app` correctly routes to the React app served under that path.
+
+---
+
+### **10.5 Dockerfile Adjustments for `/app` Path**
+
+No changes are needed to the Dockerfile when deploying the React + Express app to `/app` because the routing logic is handled within the **Express server** and **React configuration**.
+
+**Example Dockerfile** (for reference):
+
+```Dockerfile
+# Step 1: Build the React app
+FROM node:16 AS build
+WORKDIR /app/client
+COPY client/package.json ./
+RUN npm install
+COPY client ./
+RUN npm run build
+
+# Step 2: Set up the Express server
+FROM node:16
+WORKDIR /app/server
+COPY server
+
+/package.json ./
+RUN npm install
+COPY server ./
+
+# Copy the React build to the Express server
+COPY --from=build /app/client/build /app/server/build
+
+# Expose the server port
+EXPOSE 5000
+
+# Start the Express server
+CMD ["node", "server.js"]
+```
+
+---
+
 ## **Conclusion**
 
-This comprehensive guide explains how to build and deploy a React + Express full-stack application to Azure using Docker, deploy it to Azure Web App, and configure an Azure Application Gateway for traffic management and load balancing. The detailed breakdown of each Application Gateway component helps ensure that your web application is scalable, secure, and reliable.
+This README outlines the detailed process of configuring and deploying a Dockerized React and Express application to Azure Web App and setting up Azure Application Gateway with path-based routing under `/app`. The suffix path adjustments ensure that users accessing `http://<app-gateway-ip>/app` are correctly served the React application. By following the steps outlined, you can deploy, manage, and scale your application efficiently.
+
